@@ -1,6 +1,6 @@
 import { Vector } from "./features";
 
-export type Gesture = "vine" | "omg" | "get_out" | "hidup";
+export type Gesture = "vine" | "omg" | "get_out" | "hidup" | "fah";
 
 type GestureProfile = {
   mean: Vector;
@@ -22,6 +22,10 @@ export const GESTURES: Record<Gesture, GestureProfile> = {
   },
   hidup: {
     mean: [0.28, 0.15, 0.14, 0.14, 0.86],
+    threshold: 0.18,
+  },
+  fah: {
+    mean: [1.04, 0.55, 1.13, 0.29, 1.87],
     threshold: 0.18,
   },
 };
