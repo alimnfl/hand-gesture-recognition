@@ -26,4 +26,5 @@ export const sounds: Record<Gesture, () => void> = {
   omg: playSound("/sounds/omg.mp3", 800),
   get_out: playSound("/sounds/get_out.mp3", 800),
   hidup: playSound("/sounds/hidup.mp3", 800),
+  fah: playSound("/sounds/fah.mp3", 800),
 };
