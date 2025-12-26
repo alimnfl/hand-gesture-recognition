@@ -112,7 +112,7 @@ export default function HandTracking() {
 
   return (
     <div className="flex flex-col gap-2 w-full h-full justify-center items-center mx-auto py-20">
-      <h1 className="text-3xl font-semibold">Hand Tracking</h1>
+      <h1 className="text-3xl font-semibold">Hand Meme Humorism</h1>
       <div className="relative">
         <video
           ref={videoRef}
