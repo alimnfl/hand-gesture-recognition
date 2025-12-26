@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hand Humorim",
+  title: "Hand Humorism",
   description: "Just kidding forever.",
 };
 
