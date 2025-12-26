@@ -1,4 +1,4 @@
-import { Gesture } from "./coordinate";
+import { Gesture } from "./gestures";
 
 function playSound(src: string, cooldown = 800) {
   let audio: HTMLAudioElement | null = null;
@@ -22,7 +22,8 @@ function playSound(src: string, cooldown = 800) {
 }
 
 export const sounds: Record<Gesture, () => void> = {
-  fah: playSound("/sounds/fah.mp3", 800),
+  vine: playSound("/sounds/vine_boom.mp3", 800),
   omg: playSound("/sounds/omg.mp3", 800),
   get_out: playSound("/sounds/get_out.mp3", 800),
+  hidup: playSound("/sounds/hidup.mp3", 800),
 };
