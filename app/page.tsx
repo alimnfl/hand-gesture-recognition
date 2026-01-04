@@ -9,110 +9,227 @@ import { drawHand } from "@/lib/drawHand";
 import { SIGN_HUMOR_VECTOR } from "@/fragments/finger/SignHumorData";
 
 export default function HandTracking() {
-  const [vectorValue, setVectorValue] = useState<number[] | null>([
-    0, 0, 0, 0, 0,
-  ]);
-
-  const [lastGesture, setLastGesture] = useState<Gesture | null>(null);
   const [handDetected, setHandDetected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const landmarkerRef = useRef<HandLandmarker | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  // Store vector values in ref to avoid re-renders
+  const vectorDisplayRef = useRef<HTMLDivElement>(null);
+  const currentVectorRef = useRef<number[]>([0, 0, 0, 0, 0]);
+
+  const lastGestureRef = useRef<Gesture | null>(null);
+  const lastGestureTimeRef = useRef<number>(0);
+  const lastHandDetectedRef = useRef<boolean>(false);
+
+  const GESTURE_COOLDOWN = 300;
+  const UI_UPDATE_INTERVAL = 100; // Update UI only 10 times per second
+  const lastUIUpdateRef = useRef<number>(0);
 
   useEffect(() => {
-    let landmarker: HandLandmarker | null = null;
     let running = true;
 
-    // Set detect per 20fps
-    let lastDetect = 0;
-    const DETECT_INTERVAL = 200;
-
     const init = async () => {
-      if (!videoRef.current) return;
+      try {
+        setIsLoading(true);
+        setError(null);
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-      });
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
-      );
-
-      landmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-assets/hand_landmarker.task",
-        },
-        runningMode: "VIDEO",
-        numHands: 2,
-      });
-
-      const detect = () => {
-        if (!running || !landmarker || !videoRef.current) return;
-
-        const canvasCtx = canvasRef.current?.getContext("2d");
-        if (!canvasCtx) return;
-
-        const now = performance.now();
-
-        if (now - lastDetect < DETECT_INTERVAL) {
-          requestAnimationFrame(detect);
-          return;
+        if (!videoRef.current) {
+          throw new Error("Video element not found");
         }
 
-        lastDetect = now;
+        // Request camera access
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: "user",
+          },
+        });
+        streamRef.current = stream;
+        videoRef.current.srcObject = stream;
 
-        const results = landmarker.detectForVideo(videoRef.current, now);
-
-        if (results.landmarks.length > 0) {
-          setHandDetected(true);
-          for (let i = 0; i < results.landmarks.length; i++) {
-            const hand = results.landmarks[i];
-            drawHand(canvasCtx, hand);
-
-            const vector = extractVector(hand);
-            setVectorValue(vector);
-
-            const handLabel =
-              results.handedness && results.handedness[i]
-                ? results.handedness[i]?.[0].categoryName
-                : "right";
-            const processedVector =
-              handLabel === "Left" ? mirrorVector(vector) : vector;
-
-            const gesture = classify(processedVector);
-
-            if (gesture && gesture !== lastGesture) {
-              sounds[gesture]?.();
-              setLastGesture(gesture);
-            }
-
-            if (!gesture) {
-              setLastGesture(null);
-            }
+        await new Promise((resolve) => {
+          if (videoRef.current) {
+            videoRef.current.onloadedmetadata = resolve;
           }
-        } else {
-          setHandDetected(false);
-        }
-        requestAnimationFrame(detect);
-      };
+        });
 
-      detect();
+        await videoRef.current.play();
+
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
+        );
+
+        landmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-assets/hand_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numHands: 2,
+          minHandDetectionConfidence: 0.5,
+          minHandPresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+
+        setIsLoading(false);
+
+        const detect = () => {
+          if (!running || !landmarkerRef.current || !videoRef.current) return;
+
+          const canvasCtx = canvasRef.current?.getContext("2d");
+          if (!canvasCtx) {
+            animationFrameRef.current = requestAnimationFrame(detect);
+            return;
+          }
+
+          const now = performance.now();
+
+          try {
+            const results = landmarkerRef.current.detectForVideo(
+              videoRef.current,
+              now
+            );
+
+            canvasCtx.clearRect(0, 0, 640, 480);
+
+            const hasHands = results.landmarks.length > 0;
+
+            if (hasHands) {
+              if (!lastHandDetectedRef.current) {
+                lastHandDetectedRef.current = true;
+                setHandDetected(true);
+              }
+
+              for (let i = 0; i < results.landmarks.length; i++) {
+                const hand = results.landmarks[i];
+                drawHand(canvasCtx, hand);
+
+                const vector = extractVector(hand);
+                currentVectorRef.current = vector;
+
+                const handLabel =
+                  results.handedness && results.handedness[i]
+                    ? results.handedness[i]?.[0].categoryName
+                    : "Right";
+
+                const processedVector =
+                  handLabel === "Left" ? mirrorVector(vector) : vector;
+
+                const gesture = classify(processedVector);
+
+                if (
+                  gesture &&
+                  gesture !== lastGestureRef.current &&
+                  now - lastGestureTimeRef.current > GESTURE_COOLDOWN
+                ) {
+                  sounds[gesture]?.();
+                  lastGestureRef.current = gesture;
+                  lastGestureTimeRef.current = now;
+                }
+
+                if (!gesture && lastGestureRef.current) {
+                  lastGestureRef.current = null;
+                }
+              }
+            } else {
+              if (lastHandDetectedRef.current) {
+                lastHandDetectedRef.current = false;
+                setHandDetected(false);
+              }
+
+              if (lastGestureRef.current) {
+                lastGestureRef.current = null;
+              }
+            }
+
+            if (now - lastUIUpdateRef.current > UI_UPDATE_INTERVAL) {
+              updateVectorDisplay();
+              lastUIUpdateRef.current = now;
+            }
+          } catch (err) {
+            console.error("Detection error:", err);
+          }
+
+          animationFrameRef.current = requestAnimationFrame(detect);
+        };
+
+        detect();
+      } catch (err) {
+        console.error("Initialization error:", err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to initialize hand tracking"
+        );
+        setIsLoading(false);
+      }
+    };
+
+    const updateVectorDisplay = () => {
+      if (!vectorDisplayRef.current) return;
+
+      const spans = vectorDisplayRef.current.querySelectorAll(
+        "[data-vector-value]"
+      );
+      spans.forEach((span, index) => {
+        if (currentVectorRef.current[index] !== undefined) {
+          span.textContent = currentVectorRef.current[index].toFixed(2);
+        }
+      });
     };
 
     init();
 
     return () => {
       running = false;
-      landmarker?.close();
+
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+
+      if (landmarkerRef.current) {
+        landmarkerRef.current.close();
+      }
     };
   }, []);
+
+  if (error) {
+    return (
+      <div className="flex flex-col gap-4 w-full h-full justify-center items-center mx-auto py-20">
+        <h1 className="text-3xl font-semibold">Hand Meme Humorism</h1>
+        <div className="text-red-500 text-center">
+          <p className="font-medium">Error:</p>
+          <p>{error}</p>
+          <p className="text-sm mt-2">
+            Please ensure camera permissions are granted.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2 w-full h-full justify-center items-center mx-auto py-20">
       <h1 className="text-3xl font-semibold">Hand Meme Humorism</h1>
+
+      {isLoading && (
+        <div className="text-center py-4">
+          <p>Loading hand tracking...</p>
+        </div>
+      )}
+
       <div className="relative">
         <video
           ref={videoRef}
@@ -134,14 +251,17 @@ export default function HandTracking() {
 
       <div className="flex flex-col gap-4 w-full justify-center items-center">
         <h3 className="font-medium">Vector Value</h3>
-        <div className="flex flex-row text-sm w-full justify-between max-w-150">
+        <div
+          ref={vectorDisplayRef}
+          className="flex flex-row text-sm w-full justify-between max-w-150"
+        >
           {SIGN_HUMOR_VECTOR.map((item) => (
             <div
               key={item.key}
               className="flex items-center justify-center flex-col gap-1"
             >
               <span>{item.title}</span>
-              <span>{vectorValue?.[item.key].toFixed(2) ?? 0}</span>
+              <span data-vector-value={item.key}>0.00</span>
             </div>
           ))}
         </div>
