@@ -14,7 +14,7 @@ export const GESTURES: Record<Gesture, GestureProfile> = {
   },
   omg: {
     mean: [0.9, 0.9, 1.02, 0.24, 1.22],
-    threshold: 0.15,
+    threshold: 0.25,
   },
   get_out: {
     mean: [0.77, 1.18, 0.12, 0.095, 1.83],
