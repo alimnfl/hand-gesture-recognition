@@ -34,8 +34,6 @@ MediaPipe Hands provides 21 landmark points.
 
 # Registered Gestures
 
-# Registered Gestures
-
 ## ✌️ Vine
 
 Peace or V-sign gesture.
